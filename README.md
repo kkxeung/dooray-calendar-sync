@@ -25,7 +25,7 @@
 pip install --upgrade google-api-python-client google-auth-httplib2 google-auth-oauthlib requests
         ```
 4.  **스크립트 설정:**
-    *   `sync_calendar.py` 파일 내 `TARGET_CALENDAR_IDS` 변수에 동기화할 두레이 캘린더의 ID를 입력합니다.
+    *   `sync_calendar.py` 파일 내 `TARGET_CALENDAR_IDS` 변수에 동기화할 두레이 캘린더의 ID를 입력합니다. (캘린더 ID는 스크립트의 `list_dooray_calendars` 함수를 통해 확인할 수 있습니다.)
     *   **캘린더 ID 확인 방법:** `sync_calendar.py` 파일 상단에 있는 `list_dooray_calendars()` 함수를 `main()` 함수 내에서 임시로 호출하거나, Python 인터프리터에서 직접 실행하여 확인할 수 있습니다. (예: `python -c "from sync_calendar import list_dooray_calendars; list_dooray_calendars()"`)
 5.  **첫 실행 및 Google 인증:**
     *   스크립트를 처음 실행하면 웹 브라우저가 열리며 Google 계정 인증을 요청합니다. 인증을 완료하면 `token.json` 파일이 생성됩니다.
