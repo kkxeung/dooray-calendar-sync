@@ -1,0 +1,16 @@
+# Google API Credentials
+credentials.json
+token.json
+
+# Dooray API Key
+dooray_api_key.txt
+
+# Sync State
+sync_state.json
+
+# Python virtual environment
+venv/
+
+# Python cache
+__pycache__/
+*.pyc
