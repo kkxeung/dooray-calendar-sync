@@ -1,7 +1,7 @@
-
 import datetime
 import os.path
 import json
+import sys
 
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
@@ -9,20 +9,46 @@ from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
+import requests
+
+# --- Configuration Files ---
+SYNC_STATE_FILE = "sync_state.json"
+CONFIG_FILE = "config.json"
+
 # If modifying these scopes, delete the file token.json.
 SCOPES = ["https://www.googleapis.com/auth/calendar"]
 
+# --- Helper Functions for Config and State ---
+def load_json_file(filepath):
+    if not os.path.exists(filepath):
+        return {{}}
+    try:
+        with open(filepath, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except (json.JSONDecodeError, FileNotFoundError):
+        return {{}}
+
+def save_json_file(filepath, data):
+    with open(filepath, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=4, ensure_ascii=False)
+
+def load_config():
+    return load_json_file(CONFIG_FILE)
+
+def save_config(config):
+    save_json_file(CONFIG_FILE, config)
+
+def load_sync_state():
+    return load_json_file(SYNC_STATE_FILE)
+
+def save_sync_state(state):
+    save_json_file(SYNC_STATE_FILE, state)
+
+# --- Google Calendar API Functions ---
 def get_google_calendar_service():
-    """Shows basic usage of the Google Calendar API.
-    Prints the start and name of the next 10 events on the user's calendar.
-    """
     creds = None
-    # The file token.json stores the user's access and refresh tokens, and is
-    # created automatically when the authorization flow completes for the first
-    # time.
     if os.path.exists("token.json"):
         creds = Credentials.from_authorized_user_file("token.json", SCOPES)
-    # If there are no (valid) credentials available, let the user log in.
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:
             creds.refresh(Request())
@@ -31,35 +57,49 @@ def get_google_calendar_service():
                 "credentials.json", SCOPES
             )
             creds = flow.run_local_server(port=0)
-        # Save the credentials for the next run
         with open("token.json", "w") as token:
             token.write(creds.to_json())
-    
     return build("calendar", "v3", credentials=creds)
 
-import requests
-
-def get_dooray_events(calendar_ids):
-    """Fetches events for the current and next month in separate calls, then combines and filters them."""
-    print("Fetching events for current and next month...")
-    
+# --- Dooray API Functions ---
+def get_dooray_api_token():
     try:
-        with open("dooray_api_key.txt", "r") as f:
-            api_token = f.read().strip()
+        with open("dooray_api_key.txt", "r", encoding="utf-8") as f:
+            return f.read().strip()
     except FileNotFoundError:
-        print("Error: dooray_api_key.txt not found.")
-        return []
+        print("Error: dooray_api_key.txt not found. Please create it and put your Dooray API token inside.")
+        sys.exit(1)
 
+def list_dooray_calendars():
+    print("Fetching list of Dooray calendars...")
+    api_token = get_dooray_api_token()
+    headers = {"Authorization": f"dooray-api {api_token}"}
+
+    try:
+        response = requests.get("https://api.dooray.com/calendar/v1/calendars", headers=headers)
+        response.raise_for_status()
+        data = response.json()
+        calendars = data.get("result", [])
+        return calendars
+    except requests.exceptions.RequestException as e:
+        print(f"An error occurred while fetching Dooray calendars: {e}")
+        sys.exit(1)
+    except json.JSONDecodeError:
+        print("Failed to decode JSON from Dooray API response when listing calendars.")
+        sys.exit(1)
+
+def get_dooray_events(target_calendar_id):
+    print(f"Fetching events for calendar ID: {target_calendar_id}")
+    api_token = get_dooray_api_token()
     headers = {"Authorization": f"dooray-api {api_token}"}
     all_events = []
     
     # Loop to fetch for current month and next month
     for i in range(2): # 0 for current month, 1 for next month
         today = datetime.date.today()
-        target_month_date = today.replace(day=1)
         
-        # Logic to move to the target month
-        year = today.year + (today.month + i -1) // 12
+        # Calculate the target month and year
+        year = today.year + (today.month + i - 1) // 12
         month = (today.month + i - 1) % 12 + 1
         target_month_date = datetime.date(year, month, 1)
 
@@ -77,6 +117,7 @@ def get_dooray_events(calendar_ids):
         params = {
             "timeMin": f"{time_min}T00:00:00+09:00",
             "timeMax": f"{time_max}T23:59:59+09:00",
+            "calendars": target_calendar_id # Use the correct query parameter
         }
 
         try:
@@ -93,39 +134,52 @@ def get_dooray_events(calendar_ids):
         except json.JSONDecodeError:
             print("  - Failed to decode JSON from Dooray API response for this range.")
 
-    # Filter the combined events by the provided calendar IDs
-    print(f"\nFetched {len(all_events)} total events. Now filtering.")
-    filtered_events = [
-        event for event in all_events 
-        if event.get("calendar", {}).get("id") in calendar_ids
-    ]
-    
-    print(f"Found {len(filtered_events)} events in the target calendars: {calendar_ids}")
-    return filtered_events
+    print(f"Successfully fetched a total of {len(all_events)} events for calendar ID {target_calendar_id}.")
+    return all_events
 
-SYNC_STATE_FILE = "sync_state.json"
+# --- User Interaction Functions ---
+def get_user_selected_calendar_id():
+    config = load_config()
+    selected_id = config.get("selected_calendar_id")
 
-def load_sync_state():
-    """Loads the sync state from a JSON file."""
-    if not os.path.exists(SYNC_STATE_FILE):
-        return {}
-    try:
-        with open(SYNC_STATE_FILE, "r") as f:
-            return json.load(f)
-    except (json.JSONDecodeError, FileNotFoundError):
-        return {}
+    if selected_id:
+        print(f"Using previously selected calendar ID: {selected_id}")
+        return selected_id
 
-def save_sync_state(state):
-    """Saves the sync state to a JSON file."""
-    with open(SYNC_STATE_FILE, "w") as f:
-        json.dump(state, f, indent=4)
+    calendars = list_dooray_calendars()
+    if not calendars:
+        print("No Dooray calendars found. Please check your API token and permissions.")
+        sys.exit(1)
 
-def synchronize_events(service, dooray_events):
-    """Synchronizes Dooray events to Google Calendar, handling adds, updates, and deletes."""
-    print(f"\nStarting true synchronization...")
+    print("\n--- Available Dooray Calendars ---")
+    for i, cal in enumerate(calendars):
+        print(f"{i+1}. Name: {cal.get('name', 'Unknown')}, ID: {cal.get('id', 'Unknown')}")
+    print("----------------------------------")
+
+    while True:
+        try:
+            choice = input("Please enter the number of the calendar you want to sync: ")
+            choice_idx = int(choice) - 1
+            if 0 <= choice_idx < len(calendars):
+                selected_calendar = calendars[choice_idx]
+                selected_id = selected_calendar['id']
+                print(f"Selected calendar: {selected_calendar.get('name')} (ID: {selected_id})")
+                
+                config["selected_calendar_id"] = selected_id
+                save_config(config)
+                print("Calendar selection saved to config.json.")
+                return selected_id
+            else:
+                print("Invalid number. Please try again.")
+        except ValueError:
+            print("Invalid input. Please enter a number.")
+
+# --- Synchronization Logic ---
+def synchronize_events(service, dooray_events, target_calendar_id):
+    print(f"\nStarting true synchronization for calendar ID: {target_calendar_id}...")
     sync_state = load_sync_state()
     
-    source_event_map = {event['id']: event for event in dooray_events}
+    source_event_map = {{event['id']: event for event in dooray_events}}
     source_event_ids = set(source_event_map.keys())
     synced_dooray_ids = set(sync_state.keys())
 
@@ -158,11 +212,11 @@ def synchronize_events(service, dooray_events):
             is_whole_day = event.get("wholeDayFlag", False)
 
             if is_whole_day:
-                start = {"date": event.get("startedAt", "").split("+")[0]}
-                end = {"date": event.get("endedAt", "").split("+")[0]}
+                start = {{"date": event.get("startedAt", "").split("+")[0]}}
+                end = {{"date": event.get("endedAt", "").split("+")[0]}}
             else:
-                start = {"dateTime": event.get("startedAt"), "timeZone": "Asia/Seoul"}
-                end = {"dateTime": event.get("endedAt"), "timeZone": "Asia/Seoul"}
+                start = {{"dateTime": event.get("startedAt"), "timeZone": "Asia/Seoul"}}
+                end = {{"dateTime": event.get("endedAt"), "timeZone": "Asia/Seoul"}}
 
             google_event_body = {
                 "summary": subject,
@@ -192,16 +246,16 @@ def synchronize_events(service, dooray_events):
                 print(f"- Could not fetch Google event {google_id} for comparison: {e}")
                 continue
 
-            # --- Build the expected Google event structure from the Dooray event --- 
+            # --- Build the expected Google event structure from the Dooray event ---
             expected_summary = dooray_event.get("subject", "(No Title)")
             if dooray_event.get("wholeDayFlag", False):
-                expected_start = {"date": dooray_event.get("startedAt", "").split("+")[0]}
-                expected_end = {"date": dooray_event.get("endedAt", "").split("+")[0]}
+                expected_start = {{"date": dooray_event.get("startedAt", "").split("+")[0]}}
+                expected_end = {{"date": dooray_event.get("endedAt", "").split("+")[0]}}
             else:
-                expected_start = {"dateTime": dooray_event.get("startedAt"), "timeZone": "Asia/Seoul"}
-                expected_end = {"dateTime": dooray_event.get("endedAt"), "timeZone": "Asia/Seoul"}
+                expected_start = {{"dateTime": dooray_event.get("startedAt"), "timeZone": "Asia/Seoul"}}
+                expected_end = {{"dateTime": dooray_event.get("endedAt"), "timeZone": "Asia/Seoul"}}
 
-            # --- Compare actual vs expected --- 
+            # --- Compare actual vs expected ---
             is_changed = False
             if google_event.get('summary') != expected_summary:
                 is_changed = True
@@ -226,31 +280,34 @@ def synchronize_events(service, dooray_events):
     save_sync_state(sync_state)
     print("\nState file updated.")
 
+# --- Main Execution ---
 def main():
-    """
-    Main function to orchestrate the calendar synchronization.
-    """
-    # --- User Configuration ---
-    TARGET_CALENDAR_IDS = ["3771874802837352562"] # 김승종 캘린더 ID
-    # ------------------------
-
     print("Starting calendar synchronization...")
     
+    # 1. Get user selected calendar ID
+    target_calendar_id = get_user_selected_calendar_id()
+    if not target_calendar_id:
+        print("No calendar selected. Exiting.")
+        sys.exit(0)
+
+    # 2. Authenticate with Google Calendar
     service = None
     try:
         service = get_google_calendar_service()
         print("Successfully authenticated with Google Calendar.")
     except FileNotFoundError:
         print("Error: credentials.json not found. Please download it from Google Cloud Console.")
-        return
+        sys.exit(1)
     except Exception as e:
         print(f"An unexpected error occurred during Google authentication: {e}")
-        return
+        sys.exit(1)
 
-    dooray_events = get_dooray_events(TARGET_CALENDAR_IDS)
+    # 3. Fetch events from Dooray
+    dooray_events = get_dooray_events(target_calendar_id)
 
+    # 4. Synchronize events to Google Calendar
     if service:
-        synchronize_events(service, dooray_events)
+        synchronize_events(service, dooray_events, target_calendar_id)
 
     print("\nSynchronization process finished.")
 

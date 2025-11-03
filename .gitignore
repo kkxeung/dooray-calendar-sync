@@ -8,6 +8,9 @@ dooray_api_key.txt
 # Sync State
 sync_state.json
 
+# User Configuration
+config.json
+
 # Python virtual environment
 venv/
 
