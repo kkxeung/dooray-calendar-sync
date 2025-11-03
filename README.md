@@ -22,7 +22,7 @@
 3.  **Python 환경 설정:**
     *   Python 3.x 설치 후, 필요한 라이브러리를 설치합니다:
         ```bash
-pip install --upgrade google-api-python-client google-auth-httplib2 google-auth-oauthlib requests
+        pip install --upgrade google-api-python-client google-auth-httplib2 google-auth-oauthlib requests
         ```
 4.  **스크립트 설정:**
     *   `sync_calendar.py` 파일 내 `TARGET_CALENDAR_IDS` 변수에 동기화할 두레이 캘린더의 ID를 입력합니다. (캘린더 ID는 스크립트의 `list_dooray_calendars` 함수를 통해 확인할 수 있습니다.)
