@@ -15,10 +15,14 @@
 ## 🛠️ 설정 및 사용 방법
 
 1.  **Google Cloud Project 설정:**
-    *   Google Cloud Console에서 새 프로젝트를 생성하고 Google Calendar API를 활성화합니다.
-    *   OAuth 2.0 클라이언트 ID (데스크톱 앱)를 생성하고 `credentials.json` 파일을 다운로드하여 프로젝트 폴더에 저장합니다.
+    *   Google Cloud Console ([https://console.cloud.google.com/](https://console.cloud.google.com/))에 접속하여 새 프로젝트를 생성합니다.
+    *   생성한 프로젝트에서 'API 및 서비스' > '라이브러리'로 이동하여 "Google Calendar API"를 검색하고 활성화합니다.
+    *   'API 및 서비스' > '사용자 인증 정보'로 이동하여 '사용자 인증 정보 만들기' > 'OAuth 클라이언트 ID'를 선택합니다.
+    *   '애플리케이션 유형'은 '데스크톱 앱'으로 선택하고 적절한 이름을 지정합니다.
+    *   생성이 완료되면 `credentials.json` 파일을 다운로드하여 프로젝트 폴더에 저장합니다. (이 파일은 `.gitignore`에 의해 GitHub에는 업로드되지 않습니다.)
 2.  **두레이 API 토큰 준비:**
-    *   두레이 개인 설정에서 API 토큰을 발급받아 `dooray_api_key.txt` 파일에 저장합니다.
+    *   두레이 개인 설정에서 API 토큰을 발급받습니다.
+    *   프로젝트 폴더 안에 `dooray_api_key.txt` 파일을 직접 생성하고, 발급받은 API 토큰을 그 파일 안에 저장합니다. (이 파일은 `.gitignore`에 의해 GitHub에는 업로드되지 않습니다.)
 3.  **Python 환경 설정:**
     *   Python 3.x 설치 후, 필요한 라이브러리를 설치합니다:
         ```bash
