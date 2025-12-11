@@ -7,8 +7,9 @@ Dooray! 캘린더의 일정을 Google 캘린더로 동기화하는 Python 스크
 ## 주요 기능
 
 -   **단방향 동기화**: Dooray!에서 Google 캘린더로 일정을 동기화합니다.
--   **업데이트 처리**: Dooray!에서 이벤트 세부 정보(제목, 시간)가 변경되면 Google 캘린더에 업데이트합니다.
--   **삭제 처리**: Dooray!에서 이벤트가 삭제되면 Google 캘린더에서 제거합니다.
+-   **지능형 업데이트 및 삭제**: Dooray!에서 이벤트가 변경되거나 삭제되면 Google 캘린더에 반영합니다.
+    -   **과거 데이터 보존**: 동기화 기간(현재, 다음 달)에서 벗어난 과거 일정은 실수로 삭제되지 않도록 안전하게 보존됩니다.
+-   **기본 알림 비활성화**: Google 캘린더에 생성되는 모든 일정의 기본 알림이 자동으로 비활성화됩니다.
 -   **상태 저장 동기화**: 중복 생성을 피하기 위해 동기화된 이벤트를 기억합니다.
 -   **대화형 캘린더 선택**: 처음 실행 시 Dooray! 캘린더 목록을 표시하고 동기화할 캘린더를 선택하도록 요청합니다.
 
@@ -23,7 +24,7 @@ Dooray! 캘린더의 일정을 Google 캘린더로 동기화하는 Python 스크
 ### 1. 필요 라이브러리 설치
 
 ```bash
-pip install google-api-python-client google-auth-oauthlib google-auth-transport-requests requests
+pip install google-api-python-client google-auth-oauthlib google-auth-httplib2 requests
 ```
 
 ### 2. Google 캘린더 API 구성
