@@ -1,7 +1,6 @@
 import datetime
 import os.path
 import json
-import sys
 
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
@@ -9,46 +8,20 @@ from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
-import requests
-
-# --- Configuration Files ---
-SYNC_STATE_FILE = "sync_state.json"
-CONFIG_FILE = "config.json"
-
 # If modifying these scopes, delete the file token.json.
 SCOPES = ["https://www.googleapis.com/auth/calendar"]
 
-# --- Helper Functions for Config and State ---
-def load_json_file(filepath):
-    if not os.path.exists(filepath):
-        return {}
-    try:
-        with open(filepath, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except (json.JSONDecodeError, FileNotFoundError):
-        return {}
-
-def save_json_file(filepath, data):
-    with open(filepath, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=4, ensure_ascii=False)
-
-def load_config():
-    return load_json_file(CONFIG_FILE)
-
-def save_config(config):
-    save_json_file(CONFIG_FILE, config)
-
-def load_sync_state():
-    return load_json_file(SYNC_STATE_FILE)
-
-def save_sync_state(state):
-    save_json_file(SYNC_STATE_FILE, state)
-
-# --- Google Calendar API Functions ---
 def get_google_calendar_service():
+    """Shows basic usage of the Google Calendar API.
+    Prints the start and name of the next 10 events on the user's calendar.
+    """
     creds = None
+    # The file token.json stores the user's access and refresh tokens, and is
+    # created automatically when the authorization flow completes for the first
+    # time.
     if os.path.exists("token.json"):
         creds = Credentials.from_authorized_user_file("token.json", SCOPES)
+    # If there are no (valid) credentials available, let the user log in.
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:
             creds.refresh(Request())
@@ -57,49 +30,36 @@ def get_google_calendar_service():
                 "credentials.json", SCOPES
             )
             creds = flow.run_local_server(port=0)
+        # Save the credentials for the next run
         with open("token.json", "w") as token:
             token.write(creds.to_json())
+    
     return build("calendar", "v3", credentials=creds)
 
-# --- Dooray API Functions ---
-def get_dooray_api_token():
+import requests
+
+def get_dooray_events(calendar_ids):
+    """Fetches events for the current and next month, then returns them along with the query date range."""
+    print("Fetching events for current and next month...")
+    
     try:
-        with open("dooray_api_key.txt", "r", encoding="utf-8") as f:
-            return f.read().strip()
+        with open("dooray_api_key.txt", "r") as f:
+            api_token = f.read().strip()
     except FileNotFoundError:
-        print("Error: dooray_api_key.txt not found. Please create it and put your Dooray API token inside.")
-        sys.exit(1)
+        print("Error: dooray_api_key.txt not found.")
+        return [], None, None
 
-def list_dooray_calendars():
-    print("Fetching list of Dooray calendars...")
-    api_token = get_dooray_api_token()
-    headers = {"Authorization": f"dooray-api {api_token}"}
-
-    try:
-        response = requests.get("https://api.dooray.com/calendar/v1/calendars", headers=headers)
-        response.raise_for_status()
-        data = response.json()
-        calendars = data.get("result", [])
-        return calendars
-    except requests.exceptions.RequestException as e:
-        print(f"An error occurred while fetching Dooray calendars: {e}")
-        sys.exit(1)
-    except json.JSONDecodeError:
-        print("Failed to decode JSON from Dooray API response when listing calendars.")
-        sys.exit(1)
-
-def get_dooray_events(target_calendar_id):
-    print(f"Fetching events for calendar ID: {target_calendar_id}")
-    api_token = get_dooray_api_token()
     headers = {"Authorization": f"dooray-api {api_token}"}
     all_events = []
     
-    # Loop to fetch events from last month, current month, and next month
-    for i in range(-1, 2): # -1 for last month, 0 for current, 1 for next
-        today = datetime.date.today()
+    overall_time_min_iso = None
+    overall_time_max_iso = None
+
+    today = datetime.date.today()
+    # Loop to fetch for current month and next month
+    for i in range(2): # 0 for current month, 1 for next month
         
-        # Calculate the target month and year
-        # This logic correctly handles past (i < 0) and future (i > 0) months
+        # Logic to move to the target month
         year = today.year + (today.month + i - 1) // 12
         month = (today.month + i - 1) % 12 + 1
         target_month_date = datetime.date(year, month, 1)
@@ -110,15 +70,18 @@ def get_dooray_events(target_calendar_id):
         first_day_of_next_month = datetime.date(next_month_year, next_month_month, 1)
         last_day_of_target_month = first_day_of_next_month - datetime.timedelta(days=1)
 
-        time_min = target_month_date.isoformat()
-        time_max = last_day_of_target_month.isoformat()
+        time_min_iso = target_month_date.isoformat()
+        time_max_iso = last_day_of_target_month.isoformat()
 
-        print(f"- Querying for range: {time_min} to {time_max}")
+        if overall_time_min_iso is None:
+            overall_time_min_iso = time_min_iso
+        overall_time_max_iso = time_max_iso
+
+        print(f"- Querying for range: {time_min_iso} to {time_max_iso}")
 
         params = {
-            "timeMin": f"{time_min}T00:00:00+09:00",
-            "timeMax": f"{time_max}T23:59:59+09:00",
-            "calendars": target_calendar_id # Use the correct query parameter
+            "timeMin": f"{time_min_iso}T00:00:00+09:00",
+            "timeMax": f"{time_max_iso}T23:59:59+09:00",
         }
 
         try:
@@ -135,105 +98,91 @@ def get_dooray_events(target_calendar_id):
         except json.JSONDecodeError:
             print("  - Failed to decode JSON from Dooray API response for this range.")
 
-    print(f"Successfully fetched a total of {len(all_events)} events for calendar ID {target_calendar_id}.")
-    return all_events
+    # Filter the combined events by the provided calendar IDs
+    print(f"\nFetched {len(all_events)} total events. Now filtering.")
+    filtered_events = [
+        event for event in all_events 
+        if event.get("calendar", {}).get("id") in calendar_ids
+    ]
+    
+    print(f"Found {len(filtered_events)} events in the target calendars: {calendar_ids}")
+    
+    # Return the date range as full datetime strings for later comparison
+    time_min_str = f"{overall_time_min_iso}T00:00:00+09:00" if overall_time_min_iso else None
+    time_max_str = f"{overall_time_max_iso}T23:59:59+09:00" if overall_time_max_iso else None
+    
+    return filtered_events, time_min_str, time_max_str
 
-# --- User Interaction Functions ---
-def get_user_selected_calendar_id(dry_run=False):
-    config = load_config()
-    selected_id = config.get("selected_calendar_id")
+SYNC_STATE_FILE = "sync_state.json"
 
-    if selected_id:
-        print(f"Using previously selected calendar ID: {selected_id}")
-        return selected_id
+def load_sync_state():
+    """Loads the sync state from a JSON file."""
+    if not os.path.exists(SYNC_STATE_FILE):
+        return {}
+    try:
+        with open(SYNC_STATE_FILE, "r") as f:
+            return json.load(f)
+    except (json.JSONDecodeError, FileNotFoundError):
+        return {}
 
-    calendars = list_dooray_calendars()
-    if not calendars:
-        print("No Dooray calendars found. Please check your API token and permissions.")
-        sys.exit(1)
+def save_sync_state(state):
+    """Saves the sync state to a JSON file."""
+    with open(SYNC_STATE_FILE, "w") as f:
+        json.dump(state, f, indent=4)
 
-    print("\n--- Available Dooray Calendars ---")
-    for i, cal in enumerate(calendars):
-        print(f"{i+1}. Name: {cal.get('name', 'Unknown')}, ID: {cal.get('id', 'Unknown')}")
-    print("----------------------------------")
-
-    while True:
-        try:
-            choice = input("Please enter the number of the calendar you want to sync: ")
-            choice_idx = int(choice) - 1
-            if 0 <= choice_idx < len(calendars):
-                selected_calendar = calendars[choice_idx]
-                selected_id = selected_calendar['id']
-                print(f"Selected calendar: {selected_calendar.get('name')} (ID: {selected_id})")
-                
-                if not dry_run: # Only save if not in dry run mode
-                    config["selected_calendar_id"] = selected_id
-                    save_config(config)
-                    print("Calendar selection saved to config.json.")
-                else:
-                    print("[DRY RUN] Calendar selection would have been saved to config.json.")
-                return selected_id
-            else:
-                print("Invalid number. Please try again.")
-        except ValueError:
-            print("Invalid input. Please enter a number.")
-
-# --- Synchronization Logic ---
-def synchronize_events(service, dooray_events, target_calendar_id, dry_run=False):
-    print(f"\nStarting synchronization for calendar ID: {target_calendar_id}...")
+def synchronize_events(service, dooray_events, time_min, time_max):
+    """Synchronizes Dooray events to Google Calendar, with date-aware deletion logic."""
+    print(f"\nStarting true synchronization...")
     sync_state = load_sync_state()
     
-    source_event_map = {{event['id']: event for event in dooray_events}}
+    source_event_map = {event['id']: event for event in dooray_events}
     source_event_ids = set(source_event_map.keys())
     synced_dooray_ids = set(sync_state.keys())
 
-    # Identify events to add, update, and delete
+    # Identify events to add, update, and potentially delete
     events_to_add = source_event_ids - synced_dooray_ids
-    events_to_delete = synced_dooray_ids - source_event_ids
+    events_to_delete_candidates = synced_dooray_ids - source_event_ids
     potential_updates = source_event_ids.intersection(synced_dooray_ids)
 
     # --- Process Deletions ---
-    if events_to_delete:
-        print(f"\nFound {len(events_to_delete)} events to check for deletion from Google Calendar.")
-        
-        for dooray_id in list(events_to_delete):
-            google_id = sync_state.get(dooray_id)
-            if not google_id: continue
+    if events_to_delete_candidates:
+        print(f"\nFound {len(events_to_delete_candidates)} events to consider for deletion.")
+        for dooray_id in events_to_delete_candidates:
+            google_id = sync_state[dooray_id]  # Get GCal ID but don't pop from state yet
 
             try:
+                # Get the event from Google to check its date
                 google_event = service.events().get(calendarId='primary', eventId=google_id).execute()
-                end_time_str = google_event.get('end', {}).get('date') or google_event.get('end', {}).get('dateTime')
-                event_end_date = datetime.datetime.strptime(end_time_str[:10], '%Y-%m-%d').date()
+                
+                event_start_str = None
+                if 'dateTime' in google_event.get('start', {}):
+                    event_start_str = google_event['start']['dateTime']
+                elif 'date' in google_event.get('start', {}):
+                    # For all-day events, format it to be comparable to the full datetime string
+                    event_start_str = f"{google_event['start']['date']}T00:00:00+09:00"
 
-                if event_end_date < datetime.date.today():
-                    print(f"- Preserving history: '{google_event.get('summary')}' (ended {event_end_date})")
+                # If we can't determine a start time, skip it to be safe
+                if not event_start_str:
+                    print(f"- Could not determine start time for event, skipping deletion check (Dooray ID: {dooray_id})")
                     continue
 
-            except HttpError as e:
-                if e.resp.status == 404:
-                    if not dry_run:
-                        sync_state.pop(dooray_id, None)
-                    print(f"- State cleaned for event already deleted on Google Calendar (Dooray ID: {dooray_id})")
-                    continue
+                # IMPORTANT: Only delete if the event falls WITHIN the sync window
+                if time_min <= event_start_str <= time_max:
+                    # This event is in the sync window but not in Dooray's latest fetch, so it should be deleted.
+                    service.events().delete(calendarId='primary', eventId=google_id).execute()
+                    sync_state.pop(dooray_id) # Now remove it from our state file
+                    print(f"- Event DELETED (was in sync window): {google_event.get('summary')} (Dooray ID: {dooray_id})")
                 else:
-                    print(f"- Could not verify event {dooray_id} for deletion, skipping: {e}")
-                    continue
-            except (ValueError, TypeError):
-                print(f"- Could not parse date for event {dooray_id}, skipping deletion.")
-                continue
+                    # This event is outside the sync window (it's an old event), so we keep it.
+                    print(f"- Event KEPT (outside sync window): {google_event.get('summary')} (Dooray ID: {dooray_id})")
 
-            if dry_run:
-                print(f"[DRY RUN] Would DELETE event: '{google_event.get('summary', f'Dooray ID {dooray_id}')}'")
-                continue
-
-            try:
-                sync_state.pop(dooray_id)
-                service.events().delete(calendarId='primary', eventId=google_id).execute()
-                print(f"- Event DELETED: Dooray ID {dooray_id}")
             except HttpError as e:
-                if e.resp.status != 404:
-                    print(f"- Error during final deletion of event (Dooray ID: {dooray_id}): {e}")
-                    sync_state[dooray_id] = google_id
+                if e.resp.status in [404, 410]: # 404 Not Found, 410 Gone
+                    # The event is already gone from Google, so just clean up our state
+                    sync_state.pop(dooray_id)
+                    print(f"- Event already gone from Google, updating state for Dooray ID: {dooray_id}")
+                else:
+                    print(f"- Error processing potential deletion for Dooray ID {dooray_id}: {e}")
 
     # --- Process Additions ---
     if events_to_add:
@@ -244,11 +193,11 @@ def synchronize_events(service, dooray_events, target_calendar_id, dry_run=False
             is_whole_day = event.get("wholeDayFlag", False)
 
             if is_whole_day:
-                start = {{"date": event.get("startedAt", "").split("+")[0]}}
-                end = {{"date": event.get("endedAt", "").split("+")[0]}}
+                start = {"date": event.get("startedAt", "").split("+")[0]}
+                end = {"date": event.get("endedAt", "").split("+")[0]}
             else:
-                start = {{"dateTime": event.get("startedAt"), "timeZone": "Asia/Seoul"}}
-                end = {{"dateTime": event.get("endedAt"), "timeZone": "Asia/Seoul"}}
+                start = {"dateTime": event.get("startedAt"), "timeZone": "Asia/Seoul"}
+                end = {"dateTime": event.get("endedAt"), "timeZone": "Asia/Seoul"}
 
             google_event_body = {
                 "summary": subject,
@@ -256,12 +205,11 @@ def synchronize_events(service, dooray_events, target_calendar_id, dry_run=False
                 "start": start,
                 "end": end,
                 "description": f"Synced from Dooray. Event ID: {dooray_id}",
+                "reminders": {
+                    "useDefault": False,
+                    "overrides": []
+                },
             }
-            
-            if dry_run:
-                print(f"[DRY RUN] Would CREATE event: '{subject}'")
-                continue
-
             try:
                 created_event = service.events().insert(calendarId="primary", body=google_event_body).execute()
                 google_id = created_event.get('id')
@@ -283,75 +231,88 @@ def synchronize_events(service, dooray_events, target_calendar_id, dry_run=False
                 print(f"- Could not fetch Google event {google_id} for comparison: {e}")
                 continue
 
+            # --- Build the expected Google event structure from the Dooray event ---
             expected_summary = dooray_event.get("subject", "(No Title)")
             if dooray_event.get("wholeDayFlag", False):
-                expected_start = {{"date": dooray_event.get("startedAt", "").split("+")[0]}}
-                expected_end = {{"date": dooray_event.get("endedAt", "").split("+")[0]}}
+                expected_start = {"date": dooray_event.get("startedAt", "").split("+")[0]}
+                expected_end = {"date": dooray_event.get("endedAt", "").split("+")[0]}
             else:
-                expected_start = {{"dateTime": dooray_event.get("startedAt"), "timeZone": "Asia/Seoul"}}
-                expected_end = {{"dateTime": dooray_event.get("endedAt"), "timeZone": "Asia/Seoul"}}
+                expected_start = {"dateTime": dooray_event.get("startedAt"), "timeZone": "Asia/Seoul"}
+                expected_end = {"dateTime": dooray_event.get("endedAt"), "timeZone": "Asia/Seoul"}
 
-            is_changed = (google_event.get('summary') != expected_summary or
-                          google_event.get('start') != expected_start or
-                          google_event.get('end') != expected_end)
+            # --- Compare actual vs expected ---
+            is_changed = False
+            if google_event.get('summary') != expected_summary:
+                is_changed = True
+            if google_event.get('start') != expected_start:
+                is_changed = True
+            if google_event.get('end') != expected_end:
+                is_changed = True
 
             if is_changed:
-                if dry_run:
-                    print(f"[DRY RUN] Would UPDATE event: '{expected_summary}'")
-                    continue
-                
                 new_body = google_event.copy()
                 new_body['summary'] = expected_summary
                 new_body['start'] = expected_start
                 new_body['end'] = expected_end
+                new_body['reminders'] = {
+                    "useDefault": False,
+                    "overrides": []
+                }
                 try:
                     updated_event = service.events().update(calendarId='primary', eventId=google_id, body=new_body).execute()
                     print(f"- Event UPDATED: {updated_event.get('summary')}")
                 except HttpError as e:
                     print(f"- Error updating event {expected_summary}: {e}")
             else:
-                # This is a read-only check, so no dry-run difference
-                print(f"- Event is up-to-date: {expected_summary}")
+                # This is too verbose for normal runs, so it's better to comment it out or remove it.
+                # print(f"- Event is up-to-date: {expected_summary}")
+                pass
 
-    if not dry_run:
-        save_sync_state(sync_state)
-        print("\nState file updated.")
-    else:
-        print("\n[DRY RUN] State file was NOT updated.")
+    save_sync_state(sync_state)
+    print("\nState file updated.")
 
-# --- Main Execution ---
 def main():
+    """
+    Main function to orchestrate the calendar synchronization.
+    """
+    # For debugging task scheduler
+    import os
+    import sys
+    import datetime
+    log_file_path = os.path.join(os.path.dirname(os.path.abspath(sys.argv[0])), "scheduler_debug.log")
+    with open(log_file_path, "a", encoding="utf-8") as f:
+        f.write(f"--- Running at {datetime.datetime.now()} ---\n")
+        f.write(f"Current Working Directory: {os.getcwd()}\n")
+        try:
+            f.write(f"Files in CWD: {os.listdir(os.getcwd())}\n\n")
+        except Exception as e:
+            f.write(f"Could not list files in CWD: {e}\n\n")
+
+    # --- User Configuration ---
+    TARGET_CALENDAR_IDS = ["3771874802837352562"] # 김승종 캘린더 ID
+    # ------------------------
+
     print("Starting calendar synchronization...")
     
-    dry_run_mode = '--dry-run' in sys.argv # Define dry_run_mode early
-
-    # 1. Get user selected calendar ID
-    target_calendar_id = get_user_selected_calendar_id(dry_run=dry_run_mode)
-    if not target_calendar_id:
-        print("No calendar selected. Exiting.")
-        sys.exit(0)
-
-    # 2. Authenticate with Google Calendar
     service = None
     try:
         service = get_google_calendar_service()
         print("Successfully authenticated with Google Calendar.")
     except FileNotFoundError:
         print("Error: credentials.json not found. Please download it from Google Cloud Console.")
-        sys.exit(1)
+        return
     except Exception as e:
         print(f"An unexpected error occurred during Google authentication: {e}")
-        sys.exit(1)
+        return
 
-    # 3. Fetch events from Dooray
-    dooray_events = get_dooray_events(target_calendar_id)
+    dooray_events, time_min, time_max = get_dooray_events(TARGET_CALENDAR_IDS)
 
-    # 4. Synchronize events to Google Calendar
+    if not dooray_events and time_min is None:
+        print("Stopping synchronization due to an error while fetching Dooray events.")
+        return
+
     if service:
-        dry_run_mode = '--dry-run' in sys.argv
-        if dry_run_mode:
-            print("\n--- RUNNING IN DRY-RUN MODE: No changes will be made. ---")
-        synchronize_events(service, dooray_events, target_calendar_id, dry_run=dry_run_mode)
+        synchronize_events(service, dooray_events, time_min, time_max)
 
     print("\nSynchronization process finished.")
 
