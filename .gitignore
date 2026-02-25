@@ -10,6 +10,7 @@ sync_state.json
 
 # User Configuration
 config.json
+.env
 
 # Python virtual environment
 venv/

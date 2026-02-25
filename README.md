@@ -11,7 +11,8 @@ Dooray! 캘린더의 일정을 Google 캘린더로 동기화하는 Python 스크
     -   **과거 데이터 보존**: 동기화 기간(현재, 다음 달)에서 벗어난 과거 일정은 실수로 삭제되지 않도록 안전하게 보존됩니다.
 -   **기본 알림 비활성화**: Google 캘린더에 생성되는 모든 일정의 기본 알림이 자동으로 비활성화됩니다.
 -   **상태 저장 동기화**: 중복 생성을 피하기 위해 동기화된 이벤트를 기억합니다.
--   **대화형 캘린더 선택**: 처음 실행 시 Dooray! 캘린더 목록을 표시하고 동기화할 캘린더를 선택하도록 요청합니다.
+-   **설정 기반 실행**: `config.json` 또는 환경변수로 캘린더/타임존/동기화 범위를 제어합니다.
+-   **Dry-run 지원**: 실제 반영 없이 변경 예정 사항만 점검할 수 있습니다.
 
 ## 요구 사항
 
@@ -42,20 +43,41 @@ pip install google-api-python-client google-auth-oauthlib google-auth-httplib2 r
 
 ## 사용법
 
+### 0) 설정 파일 준비
+
+아래 예시 파일을 복사해 `config.json`을 만듭니다.
+
+```bash
+cp config.example.json config.json
+```
+
+`dooray_calendar_ids`에 동기화할 Dooray 캘린더 ID를 넣으세요.
+
+또는 환경변수로도 설정할 수 있습니다.
+
+```bash
+# 예시
+export DOORAY_CALENDAR_IDS="123,456"
+export DOORAY_API_TOKEN="..."
+```
+
 1.  터미널에서 스크립트를 실행합니다:
     ```bash
     python sync_calendar.py
     ```
 
-2.  **첫 실행**:
+2. 변경 예정만 확인하려면 dry-run 모드:
+   ```bash
+   python sync_calendar.py --dry-run
+   ```
+
+3.  **첫 실행**:
     -   웹 브라우저가 열리고 Google 계정에 로그인하여 권한을 부여하라는 메시지가 표시됩니다.
     -   인증 후, 다음 실행을 위해 자격 증명을 저장하는 `token.json` 파일이 생성됩니다.
-    -   Dooray! 캘린더 목록이 표시됩니다. 동기화하려는 캘린더에 해당하는 번호를 입력합니다.
-    -   선택 사항은 `config.json`에 저장됩니다.
 
-3.  **이후 실행**:
-    -   스크립트는 `config.json`에 저장된 캘린더 ID를 자동으로 사용합니다.
-    -   다른 캘린더를 동기화하려면 `config.json` 파일을 삭제하고 스크립트를 다시 실행하십시오.
+4.  **이후 실행**:
+    -   스크립트는 `config.json` 또는 환경변수를 자동으로 사용합니다.
+    -   동기화 대상 변경 시 `config.json`을 수정하거나 환경변수를 업데이트하세요.
 
 ## 자동 실행 (Windows)
 

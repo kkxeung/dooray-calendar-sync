@@ -1,0 +1,6 @@
+{
+  "dooray_calendar_ids": ["YOUR_DOORAY_CALENDAR_ID"],
+  "google_calendar_id": "primary",
+  "timezone": "Asia/Seoul",
+  "months_ahead": 2
+}
